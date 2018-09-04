@@ -36,4 +36,6 @@ func main() {
 	}
 	s.ParseKeyFile(privKeyFile)
 	s.StartPingLoop()
+
+	return
 }
