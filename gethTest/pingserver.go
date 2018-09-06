@@ -22,7 +22,7 @@ type PingServer struct {
 	GethPort   string
 	LocalIp    string
 	privKey    string
-	conn       net.Conn
+	conn       net.UDPConn
 }
 
 // private functions
@@ -61,9 +61,10 @@ func (s PingServer) ping() {
 		fmt.Println("Error encoding ping packet (", err, ")")
 	}
 	packet := b.Bytes()
-	fmt.Println(packet)
+	//fmt.Println(packet)
 
-	// create new private key???
+	// create new private key
+	// TODO: use own private key
 	ellc := elliptic.P256()
 	priv, err := ecdsa.GenerateKey(ellc, rand.Reader)
 	if err != nil {
@@ -75,14 +76,14 @@ func (s PingServer) ping() {
 		fmt.Println("Can't sign discv4 packet (", err, ")")
 	}
 	copy(packet[macSize:], sig)
-	fmt.Println(packet)
+	//fmt.Println(packet)
 
 	hash := crypto.Keccak256(packet[macSize:])
 	copy(packet, hash)
-	fmt.Println(packet)
+	//fmt.Println(packet)
 
 	// send ping packet
-	_, err = s.conn.Write(packet)
+	_, err = s.conn.WriteToUDP(packet, toaddr)
 	if err != nil {
 		fmt.Println("Error sending ping (", err, ")")
 	}
@@ -90,15 +91,71 @@ func (s PingServer) ping() {
 
 func (s PingServer) pingLoop() {
 	// open connection to target
-	conn, err := net.Dial("udp", net.JoinHostPort(s.TargetIp, s.TargetPort))
+	addr := net.UDPAddr{
+		Port: 30302,
+		IP:   net.ParseIP("127.0.0.1"),
+	}
+	conn, err := net.ListenUDP("udp", &addr)
 	if err != nil {
 		fmt.Println("Target seems to be offline (", err, ")")
 	}
 	defer conn.Close()
-	s.conn = conn
+	s.conn = *conn
 
-	// ping loop
-	s.ping()
+	// this should become a ping loop in the long run
+	go s.receiveLoop()
+	go s.ping()
+	for {
+	}
+}
+
+func (s PingServer) receiveLoop() {
+	macSize := 256 / 8
+	sigSize := 520 / 8
+	headSize := macSize + sigSize
+	for {
+		inBuf := make([]byte, 1280)
+		readLen, _, err := s.conn.ReadFromUDP(inBuf)
+		if err != nil {
+			fmt.Println("Error receiving pong (", err, ")")
+		}
+		inBuf = inBuf[:readLen]
+		fmt.Println("Received Package!")
+		fmt.Println("length:", readLen)
+		fmt.Println("received:", inBuf)
+		if len(inBuf) < headSize+1 {
+			fmt.Println("Packet too small (", err, ")")
+		}
+		hash, sig, sigdata := inBuf[:macSize], inBuf[macSize:headSize], inBuf[headSize:]
+		shouldhash := crypto.Keccak256(inBuf[macSize:])
+		if !bytes.Equal(hash, shouldhash) {
+			fmt.Println("Wrong hash!")
+			fmt.Println("Hash:", hash)
+			fmt.Println("Should Hash:", shouldhash)
+		}
+		fromID, err := recoverNodeID(crypto.Keccak256(inBuf[headSize:]), sig)
+		if err != nil {
+			fmt.Println("Failed to recover node (", err, ")")
+		}
+		fmt.Println("FromID:", fromID)
+		fmt.Println("sigdata[0]:", sigdata[0])
+		fmt.Println(" ")
+		// sigdata[0]:
+		// x01 -> ping
+		// x02 -> pong
+		// x03 -> findnode
+		// x04 -> neighbors
+
+		// for now: ignore all but pong packets
+		if sigdata[0] != byte(2) {
+			continue
+		} else {
+			fmt.Println("Received Pong Packet")
+			req := new(pong)
+			sd := rlp.NewStream(bytes.NewReader(sigdata[1:]), 0)
+			err = sd.Decode(req)
+		}
+	}
 }
 
 // public functions
