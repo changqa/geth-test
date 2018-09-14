@@ -20,11 +20,11 @@ import (
 )
 
 type pingServer struct {
-	targetIp   string
-	targetPort string
-	gethIp     string
-	gethPort   string
-	localIp    string
+	targetIp   net.IP
+	targetPort uint16
+	ourIp      net.IP
+	ourUdpPort uint16
+	ourTcpPort uint16
 	privKey    string
 
 	macSize int
@@ -37,18 +37,16 @@ type pingServer struct {
 // private functions
 func (s pingServer) ping() {
 	// create ping packet
-	theirIP := net.IPv4(127, 0, 0, 1)
-	tcpPort := uint16(30309)
 	expiration := 20 * time.Second
 	addr := &net.UDPAddr{
-		IP:   theirIP,
-		Port: 30309,
+		IP:   s.ourIp,
+		Port: int(s.ourUdpPort),
 	}
 	toaddr := &net.UDPAddr{
-		IP:   theirIP,
-		Port: 30303,
+		IP:   s.targetIp,
+		Port: int(s.targetPort),
 	}
-	ourEndpoint := makeEndpoint(addr, tcpPort)
+	ourEndpoint := makeEndpoint(addr, s.ourTcpPort)
 	req := &ping{
 		Version:    4,
 		From:       ourEndpoint,
@@ -68,7 +66,6 @@ func (s pingServer) ping() {
 		fmt.Println("Error encoding ping packet (", err, ")")
 	}
 	packet := b.Bytes()
-	//fmt.Println(packet)
 
 	// create new private key
 	// TODO: use own private key
@@ -124,7 +121,10 @@ func (s pingServer) receive() {
 	if len(inBuf) < headSize+1 {
 		fmt.Println("Packet too small (", err, ")")
 	}
-	hash, sig, sigdata := inBuf[:s.macSize], inBuf[s.macSize:headSize], inBuf[headSize:]
+	hash := inBuf[:s.macSize]
+	sig := inBuf[s.macSize:headSize]
+	sigdata := inBuf[headSize:]
+
 	shouldhash := crypto.Keccak256(inBuf[s.macSize:])
 	if !bytes.Equal(hash, shouldhash) {
 		fmt.Println("Wrong hash!")
@@ -188,7 +188,7 @@ func (s pingServer) receiveLoop() {
 func (s pingServer) ParseKeyFile(privKeyFile string) {
 	f, err := os.Open(privKeyFile)
 	if err != nil {
-		fmt.Println("Key file is missing. (", err, ")")
+		fmt.Println("Error parsing key file. (", err, ")")
 		return
 	}
 	defer f.Close()
@@ -212,12 +212,12 @@ func (s pingServer) Stop() {
 	s.conn.Close()
 }
 
-func NewPingServer(tIp, tPort, gIp, gPort string) *pingServer {
+func NewPingServer(tIp string, tPort, oPort uint16) *pingServer {
 	s := new(pingServer)
-	s.targetIp = tIp
+	s.targetIp, _, _ = net.ParseCIDR(tIp)
 	s.targetPort = tPort
-	s.gethIp = gIp
-	s.gethPort = gPort
+	s.ourUdpPort = oPort
+	s.ourTcpPort = oPort
 	s.closing = make(chan struct{})
 
 	s.macSize = 256 / 8
@@ -232,8 +232,8 @@ func NewPingServer(tIp, tPort, gIp, gPort string) *pingServer {
 	if err != nil {
 		fmt.Println("Target seems to be offline (", err, ")")
 	}
-	localIp, _, _ := net.SplitHostPort(conn.LocalAddr().String())
-	s.localIp = localIp
+	ourIp := conn.LocalAddr().(*net.UDPAddr).IP
+	s.ourIp = ourIp
 	s.conn = *conn
 
 	return s
