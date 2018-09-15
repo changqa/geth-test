@@ -21,10 +21,10 @@ import (
 
 type pingServer struct {
 	targetIp   net.IP
-	targetPort uint16
+	targetPort int
 	ourIp      net.IP
-	ourUdpPort uint16
-	ourTcpPort uint16
+	ourUdpPort int
+	ourTcpPort int
 	privKey    string
 
 	macSize int
@@ -40,13 +40,13 @@ func (s pingServer) ping() {
 	expiration := 20 * time.Second
 	addr := &net.UDPAddr{
 		IP:   s.ourIp,
-		Port: int(s.ourUdpPort),
+		Port: s.ourUdpPort,
 	}
 	toaddr := &net.UDPAddr{
 		IP:   s.targetIp,
-		Port: int(s.targetPort),
+		Port: s.targetPort,
 	}
-	ourEndpoint := makeEndpoint(addr, s.ourTcpPort)
+	ourEndpoint := makeEndpoint(addr, uint16(s.ourTcpPort))
 	req := &ping{
 		Version:    4,
 		From:       ourEndpoint,
@@ -86,11 +86,9 @@ func (s pingServer) ping() {
 		fmt.Println("Can't sign discv4 packet (", err, ")")
 	}
 	copy(packet[s.macSize:], sig)
-	//fmt.Println(packet)
 
 	hash := crypto.Keccak256(packet[s.macSize:])
 	copy(packet, hash)
-	//fmt.Println(packet)
 
 	// send ping packet
 	_, err = s.conn.WriteToUDP(packet, toaddr)
@@ -197,7 +195,6 @@ func (s pingServer) ParseKeyFile(privKeyFile string) {
 	scanner := bufio.NewScanner(f)
 	scanner.Scan()
 	s.privKey = scanner.Text()
-
 }
 
 func (s pingServer) Start() {
@@ -212,13 +209,19 @@ func (s pingServer) Stop() {
 	s.conn.Close()
 }
 
-func NewPingServer(tIp string, tPort, oPort uint16) *pingServer {
+func NewPingServer(tIp string, tPort, oPort int) *pingServer {
+	var err error
+
+	tIp = tIp + "/24"
 	s := new(pingServer)
-	s.targetIp, _, _ = net.ParseCIDR(tIp)
 	s.targetPort = tPort
 	s.ourUdpPort = oPort
 	s.ourTcpPort = oPort
 	s.closing = make(chan struct{})
+	s.targetIp, _, err = net.ParseCIDR(tIp)
+	if err != nil {
+		fmt.Println("Error parsing target IP (", err, ")")
+	}
 
 	s.macSize = 256 / 8
 	s.sigSize = 520 / 8

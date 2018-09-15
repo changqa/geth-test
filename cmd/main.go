@@ -2,24 +2,19 @@ package main
 
 import (
 	"../gethTest"
-	"fmt"
+	"flag"
 	"time"
 )
 
 func main() {
-	fmt.Println("Start!")
-	// IP + port of target geth instance
-	targetIp := "127.0.0.1"
-	targetPort := uint16(30303)
-	// IP + port of our own geth instance
-	//gethIp := "127.0.0.1"
-	ourPort := uint16(30309)
-	// private key file
-	privKeyFile := "keys/priv1"
+	targetIp := flag.String("tip", "127.0.0.1", "target IP address")
+	targetPort := flag.Int("tport", 30303, "target port number")
+	ourPort := flag.Int("oport", 30309, "our port number")
+	privKeyFile := flag.String("key", "keys/priv1", "Private key file")
 
-	s := gethTest.NewPingServer(targetIp, targetPort, ourPort)
+	s := gethTest.NewPingServer(*targetIp, *targetPort, *ourPort)
 
-	s.ParseKeyFile(privKeyFile)
+	s.ParseKeyFile(*privKeyFile)
 	s.Start()
 	time.Sleep(10 * time.Second)
 	s.Stop()
