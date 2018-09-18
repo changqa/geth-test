@@ -10,7 +10,7 @@ func main() {
 	targetIp := flag.String("tip", "127.0.0.1", "target IP address")
 	targetPort := flag.Int("tport", 30303, "target port number")
 	ourPort := flag.Int("oport", 30309, "our port number")
-	privKeyFile := flag.String("key", "keys/priv1", "Private key file")
+	privKeyFile := flag.String("keyfile", "../keys/foo/priv", "Private key file")
 
 	s := gethTest.NewPingServer(*targetIp, *targetPort, *ourPort)
 

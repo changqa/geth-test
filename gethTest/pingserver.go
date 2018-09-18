@@ -1,21 +1,24 @@
 package gethTest
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/x509"
+	//"crypto/rand"
+	//"crypto/x509"
 	"encoding/hex"
-	"encoding/pem"
+	//"encoding/pem"
 	"fmt"
+	"io"
+	"math/big"
 	"net"
 	"os"
 	"time"
 
+	//"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
+	"github.com/ethereum/go-ethereum/crypto/sha3"
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
@@ -25,7 +28,7 @@ type pingServer struct {
 	ourIp      net.IP
 	ourUdpPort int
 	ourTcpPort int
-	privKey    string
+	privKey    *ecdsa.PrivateKey
 
 	macSize int
 	sigSize int
@@ -69,17 +72,27 @@ func (s pingServer) ping() {
 
 	// create new private key
 	// TODO: use own private key
-	ellc := secp256k1.S256()
-	priv, err := ecdsa.GenerateKey(ellc, rand.Reader)
-	if err != nil {
-		fmt.Println("Can't generate key (", err, ")")
-	}
-	pubkey := elliptic.Marshal(ellc, priv.X, priv.Y)
+	//ellc := secp256k1.S256()
+	//priv, err := ecdsa.GenerateKey(ellc, rand.Reader)
+	//if err != nil {
+	//fmt.Println("Can't generate key (", err, ")")
+	//}
+	//pubkey := elliptic.Marshal(ellc, priv.X, priv.Y)
+	//privkey := make([]byte, 32)
+	//blob := priv.D.Bytes()
+	//copy(privkey[32-len(blob):], blob)
+
+	priv := s.privKey
+
 	privkey := make([]byte, 32)
+	fmt.Println("foo")
 	blob := priv.D.Bytes()
+	fmt.Println("bar")
 	copy(privkey[32-len(blob):], blob)
+	fmt.Println("buzz")
+
 	fmt.Println("=== prikey:", privkey)
-	fmt.Println("=== pubkey:", pubkey)
+	//fmt.Println("=== pubkey:", pubkey)
 
 	sig, err := crypto.Sign(crypto.Keccak256(packet[headSize:]), priv)
 	if err != nil {
@@ -96,13 +109,9 @@ func (s pingServer) ping() {
 		fmt.Println("Error sending ping (", err, ")")
 	}
 
-	pub := priv.Public()
-	x509EncodedPub, _ := x509.MarshalPKIXPublicKey(pub)
-	pemEncodedPub := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY",
-		Bytes: x509EncodedPub})
-
-	fmt.Println("Public Key:", pemEncodedPub)
-	fmt.Println("Public Key:", x509EncodedPub)
+	pub := priv.PublicKey
+	pbytes := elliptic.Marshal(pub.Curve, pub.X, pub.Y)
+	fmt.Printf("%s", hex.Dump(pbytes))
 }
 
 func (s pingServer) receive() {
@@ -153,6 +162,7 @@ func (s pingServer) receive() {
 	err = sd.Decode(req)
 	fmt.Println(largeArray)
 	fmt.Printf("%s", hex.Dump(largeArray))
+
 }
 
 func (s pingServer) pingLoop() {
@@ -183,18 +193,55 @@ func (s pingServer) receiveLoop() {
 }
 
 // public functions
+
+func Keccak256(data ...[]byte) []byte {
+	d := sha3.NewKeccak256()
+	for _, b := range data {
+		d.Write(b)
+	}
+	return d.Sum(nil)
+}
+
 func (s pingServer) ParseKeyFile(privKeyFile string) {
-	f, err := os.Open(privKeyFile)
+	fd, err := os.Open(privKeyFile)
 	if err != nil {
-		fmt.Println("Error parsing key file. (", err, ")")
+		fmt.Println("Error opening key file. (", err, ")")
 		return
 	}
-	defer f.Close()
+	defer fd.Close()
 
-	// scan first line of key file and store key
-	scanner := bufio.NewScanner(f)
-	scanner.Scan()
-	s.privKey = scanner.Text()
+	buf := make([]byte, 64)
+	if _, err := io.ReadFull(fd, buf); err != nil {
+		fmt.Println("Error reading key file. (", err, ")")
+		return
+	}
+
+	key, err := hex.DecodeString(string(buf))
+	if err != nil {
+		fmt.Println("Error decoding key. (", err, ")")
+		return
+	}
+	priv := s.privKey
+
+	priv.PublicKey.Curve = secp256k1.S256()
+	priv.D = new(big.Int).SetBytes(key)
+
+	// The priv.D must not be zero or negative.
+	if priv.D.Sign() <= 0 {
+		fmt.Println("invalid private key")
+		return
+	}
+
+	priv.PublicKey.X, priv.PublicKey.Y = priv.PublicKey.Curve.ScalarBaseMult(key)
+	if priv.PublicKey.X == nil {
+		fmt.Println("invalid private key")
+		return
+	}
+
+	fmt.Printf("%s", hex.Dump(buf))
+}
+
+func (s pingServer) GeneratePrivateKey() {
 }
 
 func (s pingServer) Start() {
@@ -222,6 +269,8 @@ func NewPingServer(tIp string, tPort, oPort int) *pingServer {
 	if err != nil {
 		fmt.Println("Error parsing target IP (", err, ")")
 	}
+
+	s.privKey = new(ecdsa.PrivateKey)
 
 	s.macSize = 256 / 8
 	s.sigSize = 520 / 8
