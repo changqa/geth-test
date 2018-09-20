@@ -112,6 +112,7 @@ func (s pingServer) bucket() int {
 	//}
 	if d <= bucketMinDistance {
 		fmt.Println("d <= bucketMinDistance")
+		return 0
 	}
 	fmt.Println("logdist:", d)
 	fmt.Println("bucket:", d-bucketMinDistance-1)
@@ -330,6 +331,10 @@ func (s pingServer) Stop() {
 	s.conn.Close()
 }
 
+func (s pingServer) ExportPrivateKey() *ecdsa.PrivateKey {
+	return s.privKey
+}
+
 func NewPingServer(tIp string, tPort, oPort int) *pingServer {
 	var err error
 
@@ -351,7 +356,7 @@ func NewPingServer(tIp string, tPort, oPort int) *pingServer {
 
 	// open connection to target
 	addr := net.UDPAddr{
-		Port: 30309,
+		Port: oPort,
 		IP:   net.ParseIP("127.0.0.1"),
 	}
 	conn, err := net.ListenUDP("udp", &addr)
