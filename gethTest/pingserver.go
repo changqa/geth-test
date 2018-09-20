@@ -93,15 +93,28 @@ func logdist(a, b common.Hash) int {
 
 // returns the bucket number for the given NodeID/TargetNodeID pair
 func (s pingServer) bucket() int {
+
+	hashBits := len(common.Hash{}) * 8
+	nBuckets := hashBits / 15                // Number of buckets
+	bucketMinDistance := hashBits - nBuckets // Log distance of closest bucket
+
 	priv := s.privKey
 	pubkey := elliptic.Marshal(secp256k1.S256(), priv.X, priv.Y)
+	pubkey = pubkey[1:]
 	ownIdSha := crypto.Keccak256Hash(pubkey[:])
 	targetIdSha := crypto.Keccak256Hash(s.targetId[:])
+	//fmt.Println("Our Public ID:", pubkey)
+	//fmt.Println("Our Hash:", ownIdSha)
+	//fmt.Println("Their Hash:", targetIdSha)
 	d := logdist(targetIdSha, ownIdSha)
 	//if d <= bucketMinDistance {
 	//return tab.buckets[0]
 	//}
+	if d <= bucketMinDistance {
+		fmt.Println("d <= bucketMinDistance")
+	}
 	fmt.Println("logdist:", d)
+	fmt.Println("bucket:", d-bucketMinDistance-1)
 	//return tab.buckets[d-bucketMinDistance-1]
 	return d
 }
