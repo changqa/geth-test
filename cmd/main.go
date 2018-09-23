@@ -4,8 +4,8 @@ import (
 	"../gethTest"
 	//"crypto/ecdsa"
 	"flag"
-	//"fmt"
-	//"time"
+	"fmt"
+	"time"
 )
 
 func main() {
@@ -15,20 +15,24 @@ func main() {
 	privKeyFile := flag.String("keyfile", "../keys/privKey_256", "Private key file")
 
 	s := gethTest.NewPingServer(*targetIp, *targetPort, *ourPort)
-	t := gethTest.NewPingServer(*targetIp, *targetPort, 33333)
+	//t := gethTest.NewPingServer(*targetIp, *targetPort, 33333)
 	k := gethTest.NewKeyStore()
 
-	s.ParseKeyFile(*privKeyFile)
-	//s.Start()
-	//time.Sleep(3 * time.Second)
-	//s.Stop()
-	foo := s.ExportPrivateKey()
+	fmt.Println(privKeyFile)
 
-	k.Add(foo, 0)
-	t.ParseKeyFile("../keys/privKey_255")
-	bar := t.ExportPrivateKey()
-	k.Add(bar, 0)
-	k.Add(bar, 0)
+	//s.ParseKeyFile(*privKeyFile)
+	s.GeneratePrivateKey()
+	s.Start()
+	time.Sleep(3000 * time.Second)
+	s.Stop()
+	//foo := s.ExportPrivateKey()
+
+	//k.Add(foo, 0)
+	//t.ParseKeyFile("../keys/privKey_255")
+	//t.GeneratePrivateKey()
+	//bar := t.ExportPrivateKey()
+	//k.Add(bar, 0)
+	//k.Add(bar, 0)
 
 	k.Print()
 

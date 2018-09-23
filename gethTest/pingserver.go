@@ -8,6 +8,7 @@ import (
 	//"crypto/x509"
 	"encoding/hex"
 	//"encoding/pem"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"math/big"
@@ -92,7 +93,7 @@ func logdist(a, b common.Hash) int {
 }
 
 // returns the bucket number for the given NodeID/TargetNodeID pair
-func (s pingServer) bucket() int {
+func (s *pingServer) bucket() int {
 
 	hashBits := len(common.Hash{}) * 8
 	nBuckets := hashBits / 15                // Number of buckets
@@ -120,7 +121,7 @@ func (s pingServer) bucket() int {
 	return d
 }
 
-func (s pingServer) getTargetId(inBuf []byte) {
+func (s *pingServer) getTargetId(inBuf []byte) {
 	headSize := s.macSize + s.sigSize
 	sig := inBuf[s.macSize:headSize]
 
@@ -136,7 +137,7 @@ func (s pingServer) getTargetId(inBuf []byte) {
 	}
 }
 
-func (s pingServer) ping() {
+func (s *pingServer) ping() {
 	// create ping packet
 	expiration := 20 * time.Second
 	addr := &net.UDPAddr{
@@ -188,7 +189,7 @@ func (s pingServer) ping() {
 	fmt.Printf("%s", hex.Dump(pbytes))
 }
 
-func (s pingServer) receive() {
+func (s *pingServer) receive() {
 	headSize := s.macSize + s.sigSize
 
 	inBuf := make([]byte, 1280)
@@ -244,7 +245,7 @@ func (s pingServer) receive() {
 
 }
 
-func (s pingServer) pingLoop() {
+func (s *pingServer) pingLoop() {
 	fmt.Println("Starting Ping Loop...")
 	for {
 		select {
@@ -258,7 +259,7 @@ func (s pingServer) pingLoop() {
 	}
 }
 
-func (s pingServer) receiveLoop() {
+func (s *pingServer) receiveLoop() {
 	fmt.Println("Starting Receive Loop...")
 	for {
 		select {
@@ -273,7 +274,7 @@ func (s pingServer) receiveLoop() {
 
 // public functions
 
-func (s pingServer) ParseKeyFile(privKeyFile string) {
+func (s *pingServer) ParseKeyFile(privKeyFile string) {
 	fd, err := os.Open(privKeyFile)
 	if err != nil {
 		fmt.Println("Error opening key file. (", err, ")")
@@ -309,6 +310,8 @@ func (s pingServer) ParseKeyFile(privKeyFile string) {
 		return
 	}
 
+	//s.privKey = priv
+
 	fmt.Printf("%s", hex.Dump(buf))
 
 	pubkey := elliptic.Marshal(secp256k1.S256(), priv.X, priv.Y)
@@ -316,22 +319,28 @@ func (s pingServer) ParseKeyFile(privKeyFile string) {
 
 }
 
-func (s pingServer) GeneratePrivateKey() {
+func (s *pingServer) GeneratePrivateKey() {
+	privKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+	s.privKey = privKey
 }
 
-func (s pingServer) Start() {
+//func (s *pingServer) GenerateBucketPrivateKey(bucket int) {
+//GeneratePrivateKey
+//}
+
+func (s *pingServer) Start() {
 	go s.receiveLoop()
 	go s.pingLoop()
 }
 
-func (s pingServer) Stop() {
+func (s *pingServer) Stop() {
 	close(s.closing)
 	time.Sleep(5 * time.Second)
 	fmt.Println("Closing Connection...")
 	s.conn.Close()
 }
 
-func (s pingServer) ExportPrivateKey() *ecdsa.PrivateKey {
+func (s *pingServer) ExportPrivateKey() *ecdsa.PrivateKey {
 	return s.privKey
 }
 
