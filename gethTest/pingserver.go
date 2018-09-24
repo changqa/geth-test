@@ -357,6 +357,10 @@ func NewPingServer(tIp string, tPort, oPort int) *pingServer {
 		fmt.Println("Error parsing target IP (", err, ")")
 	}
 
+	uconn, err := net.Dial("udp", net.JoinHostPort(s.targetIp.String(), "80"))
+	localAddr := uconn.LocalAddr().(*net.UDPAddr)
+	uconn.Close()
+
 	s.privKey = new(ecdsa.PrivateKey)
 	s.targetId = new(NodeID)
 
@@ -366,9 +370,10 @@ func NewPingServer(tIp string, tPort, oPort int) *pingServer {
 	// open connection to target
 	addr := net.UDPAddr{
 		Port: oPort,
-		IP:   net.ParseIP("127.0.0.1"),
+		IP:   localAddr.IP,
 	}
 	conn, err := net.ListenUDP("udp", &addr)
+	//conn, err := net.ListenUDP("udp", ":30309")
 	if err != nil {
 		fmt.Println("Target seems to be offline (", err, ")")
 	}
