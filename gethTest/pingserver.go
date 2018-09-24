@@ -4,11 +4,8 @@ import (
 	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	//"crypto/rand"
-	//"crypto/x509"
-	"encoding/hex"
-	//"encoding/pem"
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"math/big"
@@ -24,12 +21,13 @@ import (
 )
 
 type pingServer struct {
-	targetIp   net.IP
-	targetPort int
-	ourIp      net.IP
-	ourUdpPort int
-	ourTcpPort int
-	privKey    *ecdsa.PrivateKey
+	targetIp      net.IP
+	targetPort    int
+	ourIp         net.IP
+	ourUdpPort    int
+	ourTcpPort    int
+	privKey       *ecdsa.PrivateKey
+	PrivKeyBucket int
 
 	targetId *NodeID
 
@@ -92,7 +90,7 @@ func logdist(a, b common.Hash) int {
 	return len(a)*8 - lz
 }
 
-// returns the bucket number for the given NodeID/TargetNodeID pair
+// 'bucket' returns the bucket number for the given NodeID/TargetNodeID pair
 func (s *pingServer) bucket() int {
 
 	hashBits := len(common.Hash{}) * 8
@@ -104,23 +102,15 @@ func (s *pingServer) bucket() int {
 	pubkey = pubkey[1:]
 	ownIdSha := crypto.Keccak256Hash(pubkey[:])
 	targetIdSha := crypto.Keccak256Hash(s.targetId[:])
-	//fmt.Println("Our Public ID:", pubkey)
-	//fmt.Println("Our Hash:", ownIdSha)
-	//fmt.Println("Their Hash:", targetIdSha)
 	d := logdist(targetIdSha, ownIdSha)
-	//if d <= bucketMinDistance {
-	//return tab.buckets[0]
-	//}
 	if d <= bucketMinDistance {
 		fmt.Println("d <= bucketMinDistance")
 		return 0
 	}
-	fmt.Println("logdist:", d)
-	fmt.Println("bucket:", d-bucketMinDistance-1)
-	//return tab.buckets[d-bucketMinDistance-1]
-	return d
+	return d - bucketMinDistance - 1
 }
 
+// 'getTargetId' extracts the NodeID of the target and stores it
 func (s *pingServer) getTargetId(inBuf []byte) {
 	headSize := s.macSize + s.sigSize
 	sig := inBuf[s.macSize:headSize]
@@ -137,6 +127,7 @@ func (s *pingServer) getTargetId(inBuf []byte) {
 	}
 }
 
+// 'ping' sends a single ping-message to the target
 func (s *pingServer) ping() {
 	// create ping packet
 	expiration := 20 * time.Second
@@ -189,6 +180,7 @@ func (s *pingServer) ping() {
 	fmt.Printf("%s", hex.Dump(pbytes))
 }
 
+// 'receive' handles incoming datagrams
 func (s *pingServer) receive() {
 	headSize := s.macSize + s.sigSize
 
@@ -241,10 +233,12 @@ func (s *pingServer) receive() {
 	fmt.Println(largeArray)
 	fmt.Printf("%s", hex.Dump(largeArray))
 
-	s.bucket()
+	bucketNum := s.bucket()
+	s.PrivKeyBucket = bucketNum
 
 }
 
+// 'pingLoop' manages the ping loop
 func (s *pingServer) pingLoop() {
 	fmt.Println("Starting Ping Loop...")
 	for {
@@ -259,6 +253,7 @@ func (s *pingServer) pingLoop() {
 	}
 }
 
+// 'receiveLoop' manages the receive loop
 func (s *pingServer) receiveLoop() {
 	fmt.Println("Starting Receive Loop...")
 	for {
@@ -274,7 +269,9 @@ func (s *pingServer) receiveLoop() {
 
 // public functions
 
-func (s *pingServer) ParseKeyFile(privKeyFile string) {
+// 'ParsePrivateKeyFile' extracts a EC private key from the specified file and
+// stores it
+func (s *pingServer) ParsePrivateKeyFile(privKeyFile string) {
 	fd, err := os.Open(privKeyFile)
 	if err != nil {
 		fmt.Println("Error opening key file. (", err, ")")
@@ -309,30 +306,47 @@ func (s *pingServer) ParseKeyFile(privKeyFile string) {
 		fmt.Println("invalid private key")
 		return
 	}
-
-	//s.privKey = priv
-
-	fmt.Printf("%s", hex.Dump(buf))
-
-	pubkey := elliptic.Marshal(secp256k1.S256(), priv.X, priv.Y)
-	fmt.Printf("%s", hex.Dump(pubkey))
-
 }
 
+// 'ParsePublicKeyFile' extracts the target's public key from the specified file
+// and stores it
+func (s *pingServer) ParsePublicKeyFile() {
+	fd, err := os.Open("/Users/daniel/Developer/keys/foo/pub")
+	if err != nil {
+		fmt.Println("Error opening key file. (", err, ")")
+		return
+	}
+	defer fd.Close()
+
+	buf := make([]byte, 1280)
+
+	if _, err := io.ReadFull(fd, buf); err != nil {
+		fmt.Println("Error reading key file. (", err, ")")
+		return
+	}
+
+	key, err := hex.DecodeString(string(buf))
+	if err != nil {
+		fmt.Println("Error decoding key. (", err, ")")
+		return
+	}
+
+	fmt.Println("Parsed public key:", key)
+}
+
+// 'GeneratePrivateKey' generates a new EC private key and stores it
 func (s *pingServer) GeneratePrivateKey() {
 	privKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	s.privKey = privKey
 }
 
-//func (s *pingServer) GenerateBucketPrivateKey(bucket int) {
-//GeneratePrivateKey
-//}
-
+// 'Start' starts the receive and ping loops
 func (s *pingServer) Start() {
 	go s.receiveLoop()
 	go s.pingLoop()
 }
 
+// 'Stop' stops the receive and ping loops
 func (s *pingServer) Stop() {
 	close(s.closing)
 	time.Sleep(5 * time.Second)
@@ -340,10 +354,13 @@ func (s *pingServer) Stop() {
 	s.conn.Close()
 }
 
-func (s *pingServer) ExportPrivateKey() *ecdsa.PrivateKey {
+// 'PrivateKey' returns the stored private key
+func (s *pingServer) PrivateKey() *ecdsa.PrivateKey {
 	return s.privKey
 }
 
+// 'NewPingServer' initializes a new PingServer, sets the variables and returns
+// it
 func NewPingServer(tIp string, tPort, oPort int) *pingServer {
 	var err error
 
