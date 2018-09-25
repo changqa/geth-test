@@ -37,16 +37,14 @@ func (k *keyStore) WriteKeysToFolder(dir string) {
 			fd.Write(dst)
 
 			fd.Close()
-			// do stuff
 		}
 	}
 }
 
 // add adds a private key to the specified bucket
-func (k *keyStore) add(key *ecdsa.PrivateKey, num int) {
+func (k *keyStore) Add(key *ecdsa.PrivateKey, num int) {
 	// check size of bucket
 	if len(k.keys[num]) >= k.maxKeysPerBucket {
-		//fmt.Println("Bucket", num, "full.")
 		return
 	}
 	// discard duplicates
@@ -61,7 +59,7 @@ func (k *keyStore) add(key *ecdsa.PrivateKey, num int) {
 }
 
 // printKeys prints out all stored private keys
-func (k *keyStore) printKeys() {
+func (k *keyStore) PrintKeys() {
 	fmt.Println("Printing Keys...")
 	for i, store := range k.keys {
 		if len(store) < 1 {
@@ -75,8 +73,8 @@ func (k *keyStore) printKeys() {
 }
 
 // PrintNumberOfKeys prints the number of keys per bucket as well as the total
-// number of keys stored
-func (k *keyStore) printNumberOfKeys() {
+// number of stored keys
+func (k *keyStore) PrintNumberOfKeys() {
 	total := 0
 	for i, store := range k.keys {
 		total = total + len(store)
@@ -85,28 +83,12 @@ func (k *keyStore) printNumberOfKeys() {
 	fmt.Println("Total:", total)
 }
 
-// public functions
-
-func (k *keyStore) Add(key *ecdsa.PrivateKey, num int) {
-	k.add(key, num)
-}
-
-func (k *keyStore) PrintKeys() {
-	k.printKeys()
-}
-
-func (k *keyStore) PrintNumberOfKeys() {
-	k.printNumberOfKeys()
-}
-
-func (k *keyStore) Keys(bucket int) {
-
-}
-
+// KeysTotal returns the total number of stored keys
 func (k *keyStore) KeysTotal() int {
 	return k.keysTotal
 }
 
+// NewKeyStore creates a new key store
 func NewKeyStore(maxKeysPerBucket int) *keyStore {
 	k := new(keyStore)
 	k.maxKeysPerBucket = maxKeysPerBucket
