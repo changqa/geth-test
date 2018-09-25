@@ -1,16 +1,26 @@
 package gethTest
 
 import (
+	"bytes"
+	"crypto/ecdsa"
 	"fmt"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 	"github.com/ethereum/go-ethereum/rlp"
 	"net"
+	"time"
 )
 
 const NodeIDBits = 512
 
+const (
+	MacSize  = 256 / 8
+	SigSize  = 520 / 8
+	HeadSize = MacSize + SigSize
+)
+
 // RPC request structures
-// (from github.com/ethereum/go-ethereum/p2p/discover/udp.go)
+// (from go-ethereum/p2p/discover/udp.go)
 type (
 	NodeID [NodeIDBits / 8]byte
 
@@ -89,4 +99,66 @@ func recoverNodeID(hash, sig []byte) (id NodeID, err error) {
 		id[i] = pubkey[i+1]
 	}
 	return id, nil
+}
+
+func NewPongPacket(mac []byte, toaddr *net.UDPAddr, priv *ecdsa.PrivateKey) []byte {
+	expiration := 20 * time.Second
+	req := &pong{
+		To:         makeEndpoint(toaddr, 0),
+		Expiration: uint64(time.Now().Add(expiration).Unix()),
+		ReplyTok:   mac,
+	}
+
+	ptype := byte(2)
+	headSpace := make([]byte, HeadSize)
+	b := new(bytes.Buffer)
+	b.Write(headSpace)
+	b.WriteByte(ptype)
+	err := rlp.Encode(b, req)
+	if err := rlp.Encode(b, req); err != nil {
+		fmt.Println("Error encoding pong packet (", err, ")")
+	}
+	packet := b.Bytes()
+
+	sig, err := crypto.Sign(crypto.Keccak256(packet[HeadSize:]), priv)
+	if err != nil {
+		fmt.Println("Can't sign discv4 packet (", err, ")")
+	}
+	copy(packet[MacSize:], sig)
+	hash := crypto.Keccak256(packet[MacSize:])
+	copy(packet, hash)
+
+	return packet
+}
+
+func NewPingPacket(ourAddr, targetAddr *net.UDPAddr, ourTcpPort int, priv *ecdsa.PrivateKey) []byte {
+	expiration := 20 * time.Second
+	ourEndpoint := makeEndpoint(ourAddr, uint16(ourTcpPort))
+	req := &ping{
+		Version:    4,
+		From:       ourEndpoint,
+		To:         makeEndpoint(targetAddr, 0),
+		Expiration: uint64(time.Now().Add(expiration).Unix()),
+	}
+
+	ptype := byte(1)
+	headSpace := make([]byte, HeadSize)
+	b := new(bytes.Buffer)
+	b.Write(headSpace)
+	b.WriteByte(ptype)
+	err := rlp.Encode(b, req)
+	if err := rlp.Encode(b, req); err != nil {
+		fmt.Println("Error encoding ping packet (", err, ")")
+	}
+	packet := b.Bytes()
+
+	sig, err := crypto.Sign(crypto.Keccak256(packet[HeadSize:]), priv)
+	if err != nil {
+		fmt.Println("Can't sign discv4 packet (", err, ")")
+	}
+	copy(packet[MacSize:], sig)
+	hash := crypto.Keccak256(packet[MacSize:])
+	copy(packet, hash)
+
+	return packet
 }

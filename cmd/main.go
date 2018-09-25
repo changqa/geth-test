@@ -21,53 +21,59 @@ var (
 func init() {
 	flag.StringVar(&targetIp, "tip", "127.0.0.1", "target IP address")
 	flag.IntVar(&targetPort, "tport", 30303, "target port number")
-	flag.IntVar(&ourUdpPort, "oudpport", 30310, "our udp port number")
+	flag.IntVar(&ourUdpPort, "oudpport", 30312, "our udp port number")
 	flag.IntVar(&ourTcpPort, "otcpport", 30303, "our tcp port number")
 	flag.StringVar(&privKeyFile, "keyfile",
 		"../keys/0_0", "Private key file")
-	//"../keys/privKey_256", "Private key file")
 	flag.StringVar(&targetKeyFile, "targetkeyfile",
 		"../key", "Target public key file")
 	flag.StringVar(&keyDir, "keydir",
 		"../keys", "Key directory")
 }
 
-func main() {
+// generateKeys generates the specified number of keys
+// for every bucket of the target
+func generateKeys(num int) {
 	s := gethTest.NewPingServer(targetIp, targetPort, ourUdpPort, ourTcpPort)
-	//k := gethTest.NewKeyStore(25)
+	total := 17 * num // as of 09.2018, the number of buckets in geth is set to 17
 
-	//for k.KeysTotal() < 425 {
-	//s.GeneratePrivateKey()
-	//s.ParseTargetIdFile(targetKeyFile)
-	//foo := s.PrivateKey()
-	//bucketNum := s.BucketNumber()
-	//k.Add(foo, bucketNum)
-	//}
+	k := gethTest.NewKeyStore(num)
+	s.ParseTargetIdFile(targetKeyFile)
+	for k.KeysTotal() < total {
+		s.GeneratePrivateKey()
+		foo := s.PrivateKey()
+		bucketNum := s.BucketNumber()
+		k.Add(foo, bucketNum)
+	}
 
-	s.ParsePrivateKeyFile(privKeyFile)
-	//s.GeneratePrivateKey()
-	//s.ParseTargetIdFile("/Users/daniel/Desktop/key")
-	//s.ParseTargetIdFile()
+}
+
+// pingLoopRand starts a ping loop using a randomly
+// generated private key and NodeID
+func pingLoopRand() {
+	s := gethTest.NewPingServer(targetIp, targetPort, ourUdpPort, ourTcpPort)
+	s.GeneratePrivateKey()
 	s.Start()
-	time.Sleep(500 * time.Second)
+	time.Sleep(72 * time.Hour)
 	s.Stop()
-	//foo := s.PrivateKey()
-	//s.WriteTargetIdFile(targetKeyFile)
 
-	//s.ParseTargetIdFile("/Users/daniel/Desktop/key")
+}
 
-	//bucketNum := s.BucketNumber()
-	//fmt.Println("BucketNum:", bucketNum)
-	//fmt.Println("targetId:", s.TargetId())
+// pingLoop starts a ping loop using the private key
+// specified in the private key file
+func pingLoop() {
+	s := gethTest.NewPingServer(targetIp, targetPort, ourUdpPort, ourTcpPort)
+	s.ParsePrivateKeyFile(privKeyFile)
+	s.Start()
+	time.Sleep(72 * time.Hour)
+	s.Stop()
 
-	//dst := make([]byte, hex.EncodedLen(len(s.TargetId()[:])))
-	//hex.Encode(dst, s.TargetId()[:])
+}
 
-	//k.Add(foo, bucketNum)
-	//s.GeneratePrivateKey()
-
-	//k.PrintNumberOfKeys()
-	//k.WriteKeysToFolder(keyDir)
+func main() {
+	//generateKeys(25)
+	//pingLoopRand()
+	pingLoop()
 
 	return
 }

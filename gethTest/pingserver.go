@@ -13,10 +13,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
-	"github.com/ethereum/go-ethereum/rlp"
 )
 
 type pingServer struct {
@@ -30,89 +28,16 @@ type pingServer struct {
 
 	targetId *NodeID
 
-	macSize int
-	sigSize int
-
 	conn    net.UDPConn
 	closing chan struct{}
 }
 
-// table of leading zero counts for bytes [0..255]
-var lzcount = [256]int{
-	8, 7, 6, 6, 5, 5, 5, 5,
-	4, 4, 4, 4, 4, 4, 4, 4,
-	3, 3, 3, 3, 3, 3, 3, 3,
-	3, 3, 3, 3, 3, 3, 3, 3,
-	2, 2, 2, 2, 2, 2, 2, 2,
-	2, 2, 2, 2, 2, 2, 2, 2,
-	2, 2, 2, 2, 2, 2, 2, 2,
-	2, 2, 2, 2, 2, 2, 2, 2,
-	1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-}
-
 // private functions
 
-// logdist returns the distance between two hashes
-func logdist(a, b common.Hash) int {
-	lz := 0
-	for i := range a {
-		x := a[i] ^ b[i]
-		if x == 0 {
-			lz += 8
-		} else {
-			lz += lzcount[x]
-			break
-		}
-	}
-	return len(a)*8 - lz
-}
-
-// bucket returns the bucket number for the given NodeID/TargetNodeID pair
-func (s *pingServer) bucket() int {
-
-	hashBits := len(common.Hash{}) * 8
-	nBuckets := hashBits / 15                // Number of buckets
-	bucketMinDistance := hashBits - nBuckets // Log distance of closest bucket
-
-	priv := s.privKey
-	pubkey := elliptic.Marshal(secp256k1.S256(), priv.X, priv.Y)
-	pubkey = pubkey[1:]
-	ownIdSha := crypto.Keccak256Hash(pubkey[:])
-	targetIdSha := crypto.Keccak256Hash(s.targetId[:])
-	d := logdist(targetIdSha, ownIdSha)
-	if d <= bucketMinDistance {
-		return 0
-	}
-	return d - bucketMinDistance - 1
-}
-
-// getTargetId extracts the NodeID of the target and stores it
+// getTargetId extracts the NodeID of the target
 func (s *pingServer) getTargetId(inBuf []byte) {
-	headSize := s.macSize + s.sigSize
-	sig := inBuf[s.macSize:headSize]
+	headSize := MacSize + SigSize
+	sig := inBuf[MacSize:headSize]
 
 	fromId, err := recoverNodeID(crypto.Keccak256(inBuf[headSize:]), sig)
 	if err != nil {
@@ -128,44 +53,16 @@ func (s *pingServer) getTargetId(inBuf []byte) {
 
 // pong sends a single pong-message to the target
 func (s *pingServer) pong(buf []byte) {
-	expiration := 20 * time.Second
-	mac := buf[:s.macSize]
+	mac := buf[:MacSize]
 	toaddr := &net.UDPAddr{
 		IP:   s.targetIp,
 		Port: s.targetPort,
 	}
 
-	req := &pong{
-		To:         makeEndpoint(toaddr, 0),
-		Expiration: uint64(time.Now().Add(expiration).Unix()),
-		ReplyTok:   mac,
-	}
-
-	// from ping()
-	ptype := byte(2)
-	headSize := s.macSize + s.sigSize
-	headSpace := make([]byte, headSize)
-
-	b := new(bytes.Buffer)
-	b.Write(headSpace)
-	b.WriteByte(ptype)
-	err := rlp.Encode(b, req)
-	if err := rlp.Encode(b, req); err != nil {
-		fmt.Println("Error encoding pong packet (", err, ")")
-	}
-	packet := b.Bytes()
-	priv := s.privKey
-	sig, err := crypto.Sign(crypto.Keccak256(packet[headSize:]), priv)
-	if err != nil {
-		fmt.Println("Can't sign discv4 packet (", err, ")")
-	}
-	copy(packet[s.macSize:], sig)
-
-	hash := crypto.Keccak256(packet[s.macSize:])
-	copy(packet, hash)
+	packet := NewPongPacket(mac, toaddr, s.privKey)
 
 	// send ping packet
-	_, err = s.conn.WriteToUDP(packet, toaddr)
+	_, err := s.conn.WriteToUDP(packet, toaddr)
 	if err != nil {
 		fmt.Println("Error sending pong (", err, ")")
 	}
@@ -173,60 +70,27 @@ func (s *pingServer) pong(buf []byte) {
 
 // ping sends a single ping-message to the target
 func (s *pingServer) ping() {
-	// create ping packet
-	expiration := 20 * time.Second
-	addr := &net.UDPAddr{
+	ourAddr := &net.UDPAddr{
 		IP:   s.ourIp,
 		Port: s.ourUdpPort,
 	}
-	toaddr := &net.UDPAddr{
+	targetAddr := &net.UDPAddr{
 		IP:   s.targetIp,
 		Port: s.targetPort,
 	}
-	ourEndpoint := makeEndpoint(addr, uint16(s.ourTcpPort))
-	req := &ping{
-		Version:    4,
-		From:       ourEndpoint,
-		To:         makeEndpoint(toaddr, 0),
-		Expiration: uint64(time.Now().Add(expiration).Unix()),
-	}
 
-	ptype := byte(1)
-	headSize := s.macSize + s.sigSize
-	headSpace := make([]byte, headSize)
-
-	b := new(bytes.Buffer)
-	b.Write(headSpace)
-	b.WriteByte(ptype)
-	err := rlp.Encode(b, req)
-	if err := rlp.Encode(b, req); err != nil {
-		fmt.Println("Error encoding ping packet (", err, ")")
-	}
-	packet := b.Bytes()
-	priv := s.privKey
-	sig, err := crypto.Sign(crypto.Keccak256(packet[headSize:]), priv)
-	if err != nil {
-		fmt.Println("Can't sign discv4 packet (", err, ")")
-	}
-	copy(packet[s.macSize:], sig)
-
-	hash := crypto.Keccak256(packet[s.macSize:])
-	copy(packet, hash)
+	packet := NewPingPacket(ourAddr, targetAddr, s.ourTcpPort, s.privKey)
 
 	// send ping packet
-	_, err = s.conn.WriteToUDP(packet, toaddr)
+	_, err := s.conn.WriteToUDP(packet, targetAddr)
 	if err != nil {
 		fmt.Println("Error sending ping (", err, ")")
 	}
-
-	pub := priv.PublicKey
-	pbytes := elliptic.Marshal(pub.Curve, pub.X, pub.Y)
-	fmt.Printf("%s", hex.Dump(pbytes))
 }
 
 // receive handles incoming datagrams
 func (s *pingServer) receive() {
-	headSize := s.macSize + s.sigSize
+	headSize := MacSize + SigSize
 
 	inBuf := make([]byte, 1280)
 	s.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
@@ -239,11 +103,11 @@ func (s *pingServer) receive() {
 	if len(inBuf) < headSize+1 {
 		fmt.Println("Packet too small (", err, ")")
 	}
-	hash := inBuf[:s.macSize]
-	sig := inBuf[s.macSize:headSize]
+	hash := inBuf[:MacSize]
+	sig := inBuf[MacSize:headSize]
 	sigdata := inBuf[headSize:]
 
-	shouldhash := crypto.Keccak256(inBuf[s.macSize:])
+	shouldhash := crypto.Keccak256(inBuf[MacSize:])
 	if !bytes.Equal(hash, shouldhash) {
 		fmt.Println("Wrong hash!")
 		fmt.Println("Hash:", hash)
@@ -263,26 +127,22 @@ func (s *pingServer) receive() {
 	// x03 -> findnode
 	// x04 -> neighbors
 
-	// for now: ignore all but pong packets
+	// send pongs for incoming pings in order to enter target's buckets
 	if sigdata[0] == byte(1) {
 		s.pong(inBuf)
-	}
-	if sigdata[0] != byte(2) {
 		return
 	}
 
-	largeArray := make([]byte, len(fromID))
-	copy(largeArray[:], fromID[:])
+	// calculate target bucket number for our NodeID
+	priv := s.privKey
+	pubkey := elliptic.Marshal(secp256k1.S256(), priv.X, priv.Y)
+	pubkey = pubkey[1:]
 
-	req := new(pong)
-	sd := rlp.NewStream(bytes.NewReader(sigdata[1:]), 0)
-	err = sd.Decode(req)
-	fmt.Println(largeArray)
-	fmt.Printf("%s", hex.Dump(largeArray))
+	targetId := s.targetId[:]
 
-	bucketNum := s.bucket()
+	bucketNum := s.bucket(pubkey, targetId)
 	s.privKeyBucket = bucketNum
-	fmt.Println("BucketNum:", bucketNum)
+	fmt.Println("Bucket", bucketNum)
 
 }
 
@@ -317,8 +177,7 @@ func (s *pingServer) receiveLoop() {
 
 // public functions
 
-// ParsePrivateKeyFile extracts a EC private key from the specified file and
-// stores it
+// ParsePrivateKeyFile extracts a EC private key from the specified file
 func (s *pingServer) ParsePrivateKeyFile(privKeyFile string) {
 	fd, err := os.Open(privKeyFile)
 	if err != nil {
@@ -370,7 +229,6 @@ func (s *pingServer) WriteTargetIdFile(file string) {
 }
 
 // ParseTargetIdFile extracts the target's public key from the specified file
-// and stores it
 func (s *pingServer) ParseTargetIdFile(file string) {
 	fd, err := os.Open(file)
 	if err != nil {
@@ -396,15 +254,29 @@ func (s *pingServer) ParseTargetIdFile(file string) {
 		s.targetId[i] = fromId[i]
 	}
 
-	s.privKeyBucket = s.bucket()
+	// calculate target bucket number for our NodeID
+	priv := s.privKey
+	pubkey := elliptic.Marshal(secp256k1.S256(), priv.X, priv.Y)
+	pubkey = pubkey[1:]
+
+	targetId := s.targetId[:]
+	bucketNum := s.bucket(pubkey, targetId)
+	s.privKeyBucket = bucketNum
 }
 
-// GeneratePrivateKey generates a new EC private key and stores it
+// GeneratePrivateKey generates a new EC private key
 func (s *pingServer) GeneratePrivateKey() {
 	privKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	s.privKey = privKey
 
-	s.privKeyBucket = s.bucket()
+	// calculate target bucket number for our NodeID
+	priv := s.privKey
+	pubkey := elliptic.Marshal(secp256k1.S256(), priv.X, priv.Y)
+	pubkey = pubkey[1:]
+
+	targetId := s.targetId[:]
+	bucketNum := s.bucket(pubkey, targetId)
+	s.privKeyBucket = bucketNum
 }
 
 // PrivateKey returns the stored private key
@@ -453,8 +325,6 @@ func NewPingServer(tIp string, tPort, oUdpPort, oTcpPort int) *pingServer {
 	}
 	s.privKey = new(ecdsa.PrivateKey)
 	s.targetId = new(NodeID)
-	s.macSize = 256 / 8
-	s.sigSize = 520 / 8
 
 	// get local IP
 	uconn, err := net.Dial("udp", net.JoinHostPort(s.targetIp.String(), "80"))
