@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"crypto/ecdsa"
 	"fmt"
+	"net"
+	"time"
+
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 	"github.com/ethereum/go-ethereum/rlp"
-	"net"
-	"time"
 )
 
 const NodeIDBits = 512

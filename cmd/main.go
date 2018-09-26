@@ -2,6 +2,7 @@ package main
 
 import (
 	"../gethTest"
+
 	"flag"
 	"time"
 )
@@ -29,6 +30,17 @@ func init() {
 		"../key", "Target public key file")
 	flag.StringVar(&keyDir, "keydir",
 		"../keys", "Key directory")
+}
+
+// extractTargetNodeId fetches the NodeID of the specified target
+// and writes it to disk
+func extractTargetNodeId() {
+	s := gethTest.NewPingServer(targetIp, targetPort, ourUdpPort, ourTcpPort)
+	s.GeneratePrivateKey()
+	s.Start()
+	time.Sleep(2 * time.Second)
+	s.Stop()
+	s.WriteTargetIdFile(targetKeyFile)
 }
 
 // generateKeys generates the specified number of keys
@@ -71,6 +83,7 @@ func pingLoop() {
 }
 
 func main() {
+	//extractTargetNodeId()
 	//generateKeys(25)
 	//pingLoopRand()
 	pingLoop()
